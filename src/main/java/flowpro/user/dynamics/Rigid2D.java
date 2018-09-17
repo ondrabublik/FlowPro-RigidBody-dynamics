@@ -293,6 +293,7 @@ public class Rigid2D implements Dynamics {
             }
             out.println(line);
         } catch (IOException e) {
+            System.out.println("Error while writing into bodiesDynamic.txt file.");
             //exception handling left as an exercise for the reader
         }
     }
