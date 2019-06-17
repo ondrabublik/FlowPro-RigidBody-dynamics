@@ -107,7 +107,7 @@ public class Rigid2DMatlabInterface implements Dynamics {
         }
     }
 
-    public void computeBodyMove(double dt, double t, FluidForces fluFor) {
+    public void computeBodyMove(double dt, double t, int s, FluidForces fluFor) {
         this.dt = dt;
         this.t = t;
         double[][] translationForce = fluFor.getTranslationForce();

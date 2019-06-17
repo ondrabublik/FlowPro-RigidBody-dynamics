@@ -23,6 +23,7 @@ public class Rigid2D implements Dynamics {
     private double[] xForce;
     private double[] yForce;
     private double[] momentum;
+    public double dtOld;
     public double dt;
     public double t;
     public double zLength;
@@ -210,9 +211,15 @@ public class Rigid2D implements Dynamics {
         }
     }
 
-    public void computeBodyMove(double dt, double t, FluidForces fluFor) {
-        this.dt = dt;
+    public void computeBodyMove(double dt, double t, int innerIter, FluidForces fluFor) {
         this.t = t;
+        this.dt = dt;
+        if (t < 1e-12) {
+            this.dtOld = dt;
+        }
+        double a1 = 1 + dt / dtOld / 2;
+        double a2 = -dt / dtOld / 2;
+
         double[][] translationForce = fluFor.getTranslationForce();
         this.xForce = translationForce[0];
         this.yForce = translationForce[1];
@@ -222,20 +229,37 @@ public class Rigid2D implements Dynamics {
         try {
             if (dynamicComputation) {
                 for (int i = 0; i < nBodies; i++) {
-                    bodies[i].F = new double[]{zLength * xForce[i], zLength * yForce[i], zLength * momentum[i]};
-                    bodies[i].F = Mat.plusVec(bodies[i].F, bodies[i].timeDependentForces(t));
+                    double[] F = new double[]{zLength * xForce[i], zLength * yForce[i], zLength * momentum[i]};                    
+                    
+                    if (innerIter == 0) {                        
+                        System.arraycopy(F, 0, bodies[i].Fn, 0, bodies[i].Fnew.length);
+                        bodies[i].Fn = Mat.plusVec(bodies[i].Fn, bodies[i].timeDependentForces(t));
+                        for (int j = 0; j < bodies[i].Fn.length; j++) {
+                            bodies[i].Fnew[j] = (1 + dt / dtOld) * bodies[i].Fn[j] - dt / dtOld * bodies[i].Fold[j];
+                        }
+                    } else {                        
+                        System.arraycopy(F, 0, bodies[i].Fnew, 0, bodies[i].Fnew.length);
+                        bodies[i].Fnew = Mat.plusVec(bodies[i].Fnew, bodies[i].timeDependentForces(t+dt));
+                    }
+
                     double[] BU = Mat.times(bodies[i].B, bodies[i].U);
                     double[] KX = Mat.times(bodies[i].K, bodies[i].X);
                     //bodies[i].RHS = Mat.times(bodies[i].iM, Mat.plusMinMinVec(bodies[i].F, BU, KX));
+                    
+                    // hruza !!!!!!!!
                     double[] aux = new double[3];
+                    double[] aux2 = new double[3];
                     for (int j = 0; j < 3; j++) {
                         aux[j] = -(BU[j] + KX[j]);
+                        aux2[j] = dt * (bodies[i].Fnew[j] + bodies[i].Fn[j]) / 2;
                     }
                     bodies[i].RHS = Mat.times(bodies[i].iM, aux);
+                    aux2 = Mat.times(bodies[i].iM, aux2);
                     // Two-step Adams–Bashforth
-                    for (int j = 0; j < bodies[i].X.length; j++) {
-                        bodies[i].Xnew[j] = bodies[i].X[j] + dt * (1.5 * bodies[i].U[j] - 0.5 * bodies[i].Uold[j]);
-                        bodies[i].Unew[j] = bodies[i].U[j] + dt * (1.5 * bodies[i].RHS[j] - 0.5 * bodies[i].RHSold[j]) + dt * (bodies[i].F[j] + bodies[i].Fold[j]) / 2;
+                    for (int j = 0; j < bodies[i].X.length; j++) {                        
+                        bodies[i].Xnew[j] = bodies[i].X[j] + dt * (a1 * bodies[i].U[j] + a2 * bodies[i].Uold[j]);
+                        bodies[i].Unew[j] = bodies[i].U[j] + dt * (a1 * bodies[i].RHS[j] + a2 * bodies[i].RHSold[j])
+                                + aux2[j];
                     }
                 }
             }
@@ -246,18 +270,21 @@ public class Rigid2D implements Dynamics {
                     bodies[i].setActualKinematicCoordinates(t);
                 }
             }
-        } catch (Exception e) {
-            System.out.println("formal error in JavaScript script ");
+        } catch (Exception ex) {
+            ex.printStackTrace();
+//            System.out.println("formal error in JavaScript script ");
         }
     }
 
     public void nextTimeLevel() {
         if (dynamicComputation) {
+            dtOld = dt;
             for (int i = 0; i < nBodies; i++) {
                 for (int j = 0; j < bodies[i].X.length; j++) {
                     bodies[i].Uold[j] = bodies[i].U[j];
                     bodies[i].RHSold[j] = bodies[i].RHS[j];
-                    bodies[i].Fold[j] = bodies[i].F[j];
+                    bodies[i].Fold[j] = bodies[i].Fn[j];
+//                    bodies[i].Fn[j] = bodies[i].F[j];
                     bodies[i].X[j] = bodies[i].Xnew[j];
                     bodies[i].U[j] = bodies[i].Unew[j];
                 }
@@ -324,7 +351,8 @@ public class Rigid2D implements Dynamics {
         public double[] Uold;
         public double[] RHS;
         public double[] RHSold;
-        public double[] F;
+        public double[] Fnew;
+        public double[] Fn;
         public double[] Fold;
 
         Body(int i, ScriptEvaluator jsEval) {
@@ -337,6 +365,8 @@ public class Rigid2D implements Dynamics {
             Uold = new double[3];
             RHS = new double[3];
             RHSold = new double[3];
+            Fnew = new double[3];
+            Fn = new double[3];
             Fold = new double[3];
 
             this.jsEval = jsEval;
