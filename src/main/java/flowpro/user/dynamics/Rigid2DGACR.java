@@ -13,7 +13,7 @@ import javax.script.ScriptException;
  *
  * @author obublik
  */
-public class Rigid2D implements Dynamics {
+public class Rigid2DGACR implements Dynamics {
 
     Equation eqn;
 
@@ -23,11 +23,12 @@ public class Rigid2D implements Dynamics {
     private double[] xForce;
     private double[] yForce;
     private double[] momentum;
-    public double dtOld;
     public double dt;
     public double t;
     public double zLength;
     public double tKick;
+    public double tKickForce;
+    public String simID; 
 
     // dynamic
     boolean dynamicComputation = false;
@@ -77,7 +78,7 @@ public class Rigid2D implements Dynamics {
         try {
             double[] rotationCenters = props.getDoubleArray("rotationCenters");
             for (int i = 0; i < nBodies; i++) {
-                bodies[i].XCenter = new double[]{rotationCenters[2*i], rotationCenters[2*i + 1]}; //???? chyba
+                bodies[i].XCenter = new double[]{rotationCenters[2*i], rotationCenters[2*i + 1]};
             }
         } catch (IOException ioe) {
             System.out.println("Body centers not defined!");
@@ -95,56 +96,50 @@ public class Rigid2D implements Dynamics {
             tKick = props.getDouble("tKick");
         }
 
-        try {
-            double[] refValues = eqn.getReferenceValues();
-            lRef = refValues[0];
-            pRef = refValues[1];
-            rhoRef = refValues[2];
-            tRef = refValues[4];
-        } catch (Exception e) {
-            System.out.println("Cannot assign referential values to body dynamics!");
+        tKickForce = Double.MAX_VALUE;
+        if (props.containsKey("tKickForce")) {
+            tKickForce = props.getDouble("tKickForce");
         }
 
         try {
             double[] m = props.getDoubleArray("M");
             double[] b = props.getDoubleArray("B");
             double[] k = props.getDoubleArray("K");
+            double[] kint = props.getDoubleArray("Kint");
             int n = (int) Math.sqrt(m.length);
             double[][] M = new double[n][n];
             double[][] B = new double[n][n];
             double[][] K = new double[n][n];
+            double[][] Kint = new double[n][n];
             for (int i = 0; i < n; i++) {
                 for (int j = 0; j < n; j++) {
                     M[i][j] = m[n * i + j];
                     B[i][j] = b[n * i + j];
                     K[i][j] = k[n * i + j];
+                    Kint[i][j] = kint[n * i + j];
                 }
             }
 
-            /*mRef = rhoRef * lRef * lRef;
-             kRef = pRef;
-             bRef = pRef * tRef;
-             IRef = mRef * lRef * lRef;
-             torRef = pRef * lRef * lRef;
-             torbRef = pRef * lRef * lRef * tRef;
-             //!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! referencni hodnoty deviacnich momentu!!!!!!!!!!!
-             double[][] MRef = new double[][]{{1 / mRef, 0, 0}, {0, 1 / mRef, 0}, {0, 0, 1 / IRef}};
-             double[][] BRef = new double[][]{{1 / bRef, 0, 0}, {0, 1 / bRef, 0}, {0, 0, 1 / torbRef}};
-             double[][] KRef = new double[][]{{1 / kRef, 0, 0}, {0, 1 / kRef, 0}, {0, 0, 1 / torRef}};
+            try {
+                double[] refValues = eqn.getReferenceValues();
+                lRef = refValues[0];
+                pRef = refValues[1];
+                rhoRef = refValues[2];
+                tRef = refValues[4];
+            } catch (Exception e) {
+                System.out.println("Cannot assign referential values to body dynamics!");
+            }
 
-             // transfer to unreferential values
-             M = Mat.times(M, MRef);
-             B = Mat.times(B, BRef);
-             K = Mat.times(K, KRef);*/
             double[][] iFRef = new double[][]{{1 / (pRef * lRef), 0, 0}, {0, 1 / (pRef * lRef), 0}, {0, 0, 1 / (pRef * lRef * lRef)}};
             double[][] LRef = new double[][]{{lRef, 0, 0}, {0, lRef, 0}, {0, 0, lRef * lRef}};
             // transfer to unreferential values
             M = Mat.times(Mat.times(Mat.times(iFRef, M), LRef), 1 / (tRef * tRef));
             B = Mat.times(Mat.times(Mat.times(iFRef, B), LRef), 1 / tRef);
             K = Mat.times(Mat.times(iFRef, K), LRef);
-
+            Kint = Mat.times(Mat.times(iFRef, Kint), LRef);
+            
             for (int i = 0; i < nBodies; i++) {
-                bodies[i].setBodyParameters(M, B, K);
+                bodies[i].setBodyParameters(M, B, K, Kint);
             }
 
             dynamicComputation = true;
@@ -209,17 +204,16 @@ public class Rigid2D implements Dynamics {
                 bodies[i].setAlphaTimeForce(alphaTimeForce[i]);
             }
         }
+        
+        simID = "";
+        if (props.containsKey("simID")) {
+            simID = props.getString("simID");
+        }
     }
 
     public void computeBodyMove(double dt, double t, int innerIter, FluidForces fluFor) {
-        this.t = t;
         this.dt = dt;
-        if (t < 1e-12) {
-            this.dtOld = dt;
-        }
-        double a1 = 1 + dt / dtOld / 2;
-        double a2 = -dt / dtOld / 2;
-
+        this.t = t;
         double[][] translationForce = fluFor.getTranslationForce();
         this.xForce = translationForce[0];
         this.yForce = translationForce[1];
@@ -229,37 +223,30 @@ public class Rigid2D implements Dynamics {
         try {
             if (dynamicComputation) {
                 for (int i = 0; i < nBodies; i++) {
-                    double[] F = new double[]{zLength * xForce[i], zLength * yForce[i], zLength * momentum[i]};                    
-                    
-                    if (innerIter == 0) {                        
-                        System.arraycopy(F, 0, bodies[i].Fn, 0, bodies[i].Fnew.length);
-                        bodies[i].Fn = Mat.plusVec(bodies[i].Fn, bodies[i].timeDependentForces(t));
-                        for (int j = 0; j < bodies[i].Fn.length; j++) {
-                            bodies[i].Fnew[j] = (1 + dt / dtOld) * bodies[i].Fn[j] - dt / dtOld * bodies[i].Fold[j];
-                        }
-                    } else {                        
-                        System.arraycopy(F, 0, bodies[i].Fnew, 0, bodies[i].Fnew.length);
-                        bodies[i].Fnew = Mat.plusVec(bodies[i].Fnew, bodies[i].timeDependentForces(t+dt));
+                    int ip = i + 1;
+                    if (ip == nBodies) {
+                        ip = 0;
+                    }
+                    int im = i - 1;
+                    if (im == -1) {
+                        im = nBodies - 1;
                     }
 
+                    bodies[i].F = new double[]{zLength * xForce[i], zLength * yForce[i], zLength * momentum[i]};
+                    bodies[i].F = Mat.plusVec(bodies[i].F, bodies[i].timeDependentForces(t));
                     double[] BU = Mat.times(bodies[i].B, bodies[i].U);
                     double[] KX = Mat.times(bodies[i].K, bodies[i].X);
-                    //bodies[i].RHS = Mat.times(bodies[i].iM, Mat.plusMinMinVec(bodies[i].F, BU, KX));
-                    
-                    // hruza !!!!!!!!
+                    double[] KintXp = Mat.times(bodies[i].Kint, Mat.minusVec(bodies[i].X, bodies[ip].X));
+                    double[] KintXm = Mat.times(bodies[i].Kint, Mat.minusVec(bodies[i].X, bodies[im].X));
                     double[] aux = new double[3];
-                    double[] aux2 = new double[3];
                     for (int j = 0; j < 3; j++) {
-                        aux[j] = -(BU[j] + KX[j]);
-                        aux2[j] = dt * (bodies[i].Fnew[j] + bodies[i].Fn[j]) / 2;
+                        aux[j] = - (BU[j] + KX[j] + KintXp[j] + KintXm[j]);
                     }
                     bodies[i].RHS = Mat.times(bodies[i].iM, aux);
-                    aux2 = Mat.times(bodies[i].iM, aux2);
                     // Two-step Adams–Bashforth
-                    for (int j = 0; j < bodies[i].X.length; j++) {                        
-                        bodies[i].Xnew[j] = bodies[i].X[j] + dt * (a1 * bodies[i].U[j] + a2 * bodies[i].Uold[j]);
-                        bodies[i].Unew[j] = bodies[i].U[j] + dt * (a1 * bodies[i].RHS[j] + a2 * bodies[i].RHSold[j])
-                                + aux2[j];
+                    for (int j = 0; j < bodies[i].X.length; j++) {
+                        bodies[i].Xnew[j] = bodies[i].X[j] + dt * (1.5 * bodies[i].U[j] - 0.5 * bodies[i].Uold[j]);
+                        bodies[i].Unew[j] = bodies[i].U[j] + dt * (1.5 * bodies[i].RHS[j] - 0.5 * bodies[i].RHSold[j]) + dt * (bodies[i].F[j] + bodies[i].Fold[j]) / 2;
                     }
                 }
             }
@@ -270,21 +257,18 @@ public class Rigid2D implements Dynamics {
                     bodies[i].setActualKinematicCoordinates(t);
                 }
             }
-        } catch (Exception ex) {
-            ex.printStackTrace();
-//            System.out.println("formal error in JavaScript script ");
+        } catch (Exception e) {
+            System.out.println("formal error in JavaScript script ");
         }
     }
 
     public void nextTimeLevel() {
         if (dynamicComputation) {
-            dtOld = dt;
             for (int i = 0; i < nBodies; i++) {
                 for (int j = 0; j < bodies[i].X.length; j++) {
                     bodies[i].Uold[j] = bodies[i].U[j];
                     bodies[i].RHSold[j] = bodies[i].RHS[j];
-                    bodies[i].Fold[j] = bodies[i].Fn[j];
-//                    bodies[i].Fn[j] = bodies[i].F[j];
+                    bodies[i].Fold[j] = bodies[i].F[j];
                     bodies[i].X[j] = bodies[i].Xnew[j];
                     bodies[i].U[j] = bodies[i].Unew[j];
                 }
@@ -300,7 +284,7 @@ public class Rigid2D implements Dynamics {
         return mshMov;
     }
 
-    public double[][] getCenter() { // XCenter neni updatovan ?????????
+    public double[][] getCenter() {
         double[][] center = new double[2][nBodies];
         for (int i = 0; i < nBodies; i++) {
             center[0][i] = bodies[i].XCenter[0];
@@ -310,17 +294,16 @@ public class Rigid2D implements Dynamics {
     }
 
     public void savePositionsAndForces() {
-        try (FileWriter fw = new FileWriter(simulationPath + "bodiesDynamic.txt", true);
+        try (FileWriter fw = new FileWriter(simulationPath + "bodiesDynamic" + simID + ".txt", true);
                 BufferedWriter bw = new BufferedWriter(fw);
                 PrintWriter out = new PrintWriter(bw)) {
             String line = Double.toString(t);
             for (int i = 0; i < nBodies; i++) {
                 line = line + " " + Double.toString(bodies[i].Xnew[0]) + " " + Double.toString(bodies[i].Xnew[1]) + " " + Double.toString(bodies[i].Xnew[2]) + " "
-                        + Double.toString(zLength * xForce[i]) + " " + Double.toString(zLength * yForce[i]) + " " + Double.toString(zLength * momentum[i]);
+                        + Double.toString(xForce[i]) + " " + Double.toString(yForce[i]) + " " + Double.toString(momentum[i]);
             }
             out.println(line);
         } catch (IOException e) {
-            System.out.println("Error while writing into bodiesDynamic.txt file.");
             //exception handling left as an exercise for the reader
         }
     }
@@ -342,6 +325,7 @@ public class Rigid2D implements Dynamics {
         public double[][] iM;
         public double[][] B;
         public double[][] K;
+        public double[][] Kint;
 
         public double[] XCenter;
 
@@ -351,8 +335,7 @@ public class Rigid2D implements Dynamics {
         public double[] Uold;
         public double[] RHS;
         public double[] RHSold;
-        public double[] Fnew;
-        public double[] Fn;
+        public double[] F;
         public double[] Fold;
 
         Body(int i, ScriptEvaluator jsEval) {
@@ -365,22 +348,20 @@ public class Rigid2D implements Dynamics {
             Uold = new double[3];
             RHS = new double[3];
             RHSold = new double[3];
-            Fnew = new double[3];
-            Fn = new double[3];
             Fold = new double[3];
 
             this.jsEval = jsEval;
         }
 
-        void setBodyParameters(double[][] M, double[][] B, double[][] K) {
+        void setBodyParameters(double[][] M, double[][] B, double[][] K, double[][] Kint) {
             this.M = M;
             this.B = B;
             this.K = K;
+            this.Kint = Kint;
             iM = Mat.invert(M);
         }
 
         void setActualKinematicCoordinates(double t) throws ScriptException {
-            t = t * tRef;
             if (xMotion != null) {
                 Xnew[0] = jsEval.eval(xMotion, t);
             }
@@ -393,16 +374,17 @@ public class Rigid2D implements Dynamics {
         }
 
         public double[] timeDependentForces(double t) throws ScriptException { // time dependent external forces
-            t = t * tRef;
             double[] Ft = new double[3];
-            if (xTimeForce != null) {
-                Ft[0] = jsEval.eval(xTimeForce, t);
-            }
-            if (yTimeForce != null) {
-                Ft[1] = jsEval.eval(yTimeForce, t);
-            }
-            if (alphaTimeForce != null) {
-                Ft[2] = jsEval.eval(alphaTimeForce, t);
+            if (t < tKickForce) {
+                if (xTimeForce != null) {
+                    Ft[0] = jsEval.eval(xTimeForce, t);
+                }
+                if (yTimeForce != null) {
+                    Ft[1] = jsEval.eval(yTimeForce, t);
+                }
+                if (alphaTimeForce != null) {
+                    Ft[2] = jsEval.eval(alphaTimeForce, t);
+                }
             }
             return Ft;
         }
