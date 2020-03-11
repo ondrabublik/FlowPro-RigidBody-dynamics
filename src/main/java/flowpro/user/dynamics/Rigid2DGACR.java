@@ -37,6 +37,8 @@ public class Rigid2DGACR implements Dynamics {
     protected double rhoRef = 1;
     protected double vRef = 1;
     protected double tRef = 1;
+    protected double FRef = 1;
+    protected double MomRef = 1;
     protected double mRef;
     protected double IRef;
     protected double kRef;
@@ -126,6 +128,8 @@ public class Rigid2DGACR implements Dynamics {
                 pRef = refValues[1];
                 rhoRef = refValues[2];
                 tRef = refValues[4];
+                FRef = pRef * lRef;
+                MomRef = pRef * lRef * lRef;
             } catch (Exception e) {
                 System.out.println("Cannot assign referential values to body dynamics!");
             }
@@ -375,15 +379,15 @@ public class Rigid2DGACR implements Dynamics {
 
         public double[] timeDependentForces(double t) throws ScriptException { // time dependent external forces
             double[] Ft = new double[3];
-            if (t < tKickForce) {
+            if (t*tRef < tKickForce) {
                 if (xTimeForce != null) {
-                    Ft[0] = jsEval.eval(xTimeForce, t);
+                    Ft[0] = FRef*jsEval.eval(xTimeForce, t);
                 }
                 if (yTimeForce != null) {
-                    Ft[1] = jsEval.eval(yTimeForce, t);
+                    Ft[1] = FRef*jsEval.eval(yTimeForce, t);
                 }
                 if (alphaTimeForce != null) {
-                    Ft[2] = jsEval.eval(alphaTimeForce, t);
+                    Ft[2] = MomRef*jsEval.eval(alphaTimeForce, t);
                 }
             }
             return Ft;
