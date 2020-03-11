@@ -381,13 +381,13 @@ public class Rigid2DGACR implements Dynamics {
             double[] Ft = new double[3];
             if (t*tRef < tKickForce) {
                 if (xTimeForce != null) {
-                    Ft[0] = FRef*jsEval.eval(xTimeForce, t);
+                    Ft[0] = jsEval.eval(xTimeForce, t)/FRef;
                 }
                 if (yTimeForce != null) {
-                    Ft[1] = FRef*jsEval.eval(yTimeForce, t);
+                    Ft[1] = jsEval.eval(yTimeForce, t)/FRef;
                 }
                 if (alphaTimeForce != null) {
-                    Ft[2] = MomRef*jsEval.eval(alphaTimeForce, t);
+                    Ft[2] = jsEval.eval(alphaTimeForce, t)/MomRef;
                 }
             }
             return Ft;
