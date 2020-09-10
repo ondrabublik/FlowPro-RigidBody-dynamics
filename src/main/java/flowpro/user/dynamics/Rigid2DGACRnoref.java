@@ -13,7 +13,7 @@ import javax.script.ScriptException;
  *
  * @author obublik
  */
-public class Rigid2DGACR implements Dynamics {
+public class Rigid2DGACRnoref implements Dynamics {
 
     Equation eqn;
 
@@ -86,7 +86,7 @@ public class Rigid2DGACR implements Dynamics {
         try {
             double[] rotationCenters = props.getDoubleArray("rotationCenters");
             for (int i = 0; i < nBodies; i++) {
-                bodies[i].XCenter = new double[]{rotationCenters[2 * i], rotationCenters[2 * i + 1]};
+                bodies[i].XCenter = new double[]{rotationCenters[2 * i]/lRef, rotationCenters[2 * i + 1]/lRef};
             }
         } catch (IOException ioe) {
             System.out.println("Body centers not defined!");
@@ -124,13 +124,6 @@ public class Rigid2DGACR implements Dynamics {
                     K[i][j] = k[n * i + j];
                 }
             }
-
-            double[][] iFRef = new double[][]{{1 / (pRef * lRef), 0, 0}, {0, 1 / (pRef * lRef), 0}, {0, 0, 1 / (pRef * lRef * lRef)}};
-            double[][] LRef = new double[][]{{lRef, 0, 0}, {0, lRef, 0}, {0, 0, 1}};
-            // transfer to unreferential values
-            M = Mat.times(Mat.times(Mat.times(iFRef, M), LRef), 1 / (tRef * tRef));
-            B = Mat.times(Mat.times(Mat.times(iFRef, B), LRef), 1 / tRef);
-            K = Mat.times(Mat.times(iFRef, K), LRef);
 
             for (int i = 0; i < nBodies; i++) {
                 bodies[i].setBodyParameters(M, B, K);
@@ -233,19 +226,19 @@ public class Rigid2DGACR implements Dynamics {
         }
     }
 
-    public void computeBodyMove(double dt, double t, int innerIter, FluidForces fluFor) {
-        this.dt = dt;
-        this.t = t;
+    public void computeBodyMove(double dtIn, double tIn, int innerIter, FluidForces fluFor) {
+        this.dt = tRef*dtIn;
+        this.t = tRef*tIn;
         double[][] translationForce = fluFor.getTranslationForce();
-        this.xForce = translationForce[0];
-        this.yForce = translationForce[1];
+        this.xForce = Mat.times(translationForce[0],zLength*FRef);
+        this.yForce = Mat.times(translationForce[1],zLength*FRef);
         double[][] rotationForce = fluFor.getRotationForce();
-        this.momentum = rotationForce[0];
+        this.momentum = Mat.times(rotationForce[0],zLength*MomRef);
 
         try {
             if (dynamicComputation) {
                 for (int i = 0; i < nBodies; i++) {
-                    bodies[i].F = new double[]{zLength * xForce[i], zLength * yForce[i], zLength * momentum[i]};
+                    bodies[i].F = new double[]{xForce[i], yForce[i], momentum[i]};
                     bodies[i].F = Mat.plusVec(bodies[i].F, bodies[i].timeDependentForces(t));
                     double[] BU = Mat.times(bodies[i].B, bodies[i].U);
                     double[] KX = Mat.times(bodies[i].K, bodies[i].X); 
@@ -257,7 +250,6 @@ public class Rigid2DGACR implements Dynamics {
                     }
                     bodies[i].RHS = Mat.times(bodies[i].iM, aux);
                     auxForces = Mat.times(bodies[i].iM, auxForces);
-
                     // Two-step Adams–Bashforth
                     for (int j = 0; j < bodies[i].X.length; j++) {
                         if (bodies[i].freedom[j]) {
@@ -269,9 +261,9 @@ public class Rigid2DGACR implements Dynamics {
             }
 
             // kinematic forced body
-            if (t * tRef < tKick) {
+            if (t < tKick) {
                 for (int i = 0; i < nBodies; i++) {
-                    bodies[i].setActualKinematicCoordinates(tRef * t);
+                    bodies[i].setActualKinematicCoordinates(t);
                     for (int j = 0; j < bodies[i].X.length; j++) {
                         if (bodies[i].freedom[j]) {
                             bodies[i].Unew[j] = (bodies[i].Xnew[j] - bodies[i].X[j])/dt;
@@ -301,7 +293,7 @@ public class Rigid2DGACR implements Dynamics {
     public MeshMove[] getMeshMove() {
         MeshMove[] mshMov = new MeshMove[nBodies];
         for (int k = 0; k < nBodies; k++) {
-            mshMov[k] = new MeshMove(new double[]{bodies[k].Xnew[0], bodies[k].Xnew[1]}, new double[]{bodies[k].Xnew[2]}, null, null);
+            mshMov[k] = new MeshMove(new double[]{bodies[k].Xnew[0]/lRef, bodies[k].Xnew[1]/lRef}, new double[]{bodies[k].Xnew[2]}, null, null);
         }
         return mshMov;
     }
@@ -309,8 +301,8 @@ public class Rigid2DGACR implements Dynamics {
     public double[][] getCenter() {
         double[][] center = new double[2][nBodies];
         for (int i = 0; i < nBodies; i++) {
-            center[0][i] = bodies[i].XCenter[0];
-            center[1][i] = bodies[i].XCenter[1];
+            center[0][i] = bodies[i].XCenter[0]/lRef;
+            center[1][i] = bodies[i].XCenter[1]/lRef;
         }
         return center;
     }
@@ -322,7 +314,7 @@ public class Rigid2DGACR implements Dynamics {
             String line = Double.toString(t);
             for (int i = 0; i < nBodies; i++) {
                 line = line + " " + Double.toString(bodies[i].Xnew[0]) + " " + Double.toString(bodies[i].Xnew[1]) + " " + Double.toString(bodies[i].Xnew[2]) + " "
-                        + Double.toString(zLength*xForce[i]) + " " + Double.toString(zLength*yForce[i]) + " " + Double.toString(zLength*momentum[i]);
+                        + Double.toString(xForce[i]) + " " + Double.toString(yForce[i]) + " " + Double.toString(momentum[i]);
             }
             out.println(line);
         } catch (IOException e) {
@@ -397,15 +389,15 @@ public class Rigid2DGACR implements Dynamics {
 
         public double[] timeDependentForces(double t) throws ScriptException { // time dependent external forces
             double[] Ft = new double[3];
-            if (t * tRef < tKickForce) {
+            if (t < tKickForce) {
                 if (xTimeForce != null) {
-                    Ft[0] = jsEval.eval(xTimeForce, t) / FRef;
+                    Ft[0] = jsEval.eval(xTimeForce, t);
                 }
                 if (yTimeForce != null) {
-                    Ft[1] = jsEval.eval(yTimeForce, t) / FRef;
+                    Ft[1] = jsEval.eval(yTimeForce, t);
                 }
                 if (alphaTimeForce != null) {
-                    Ft[2] = jsEval.eval(alphaTimeForce, t) / MomRef;
+                    Ft[2] = jsEval.eval(alphaTimeForce, t);
                 }
             }
             return Ft;
