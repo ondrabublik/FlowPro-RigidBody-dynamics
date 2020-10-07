@@ -246,7 +246,7 @@ public class Rigid2DGACR implements Dynamics {
             if (dynamicComputation) {
                 for (int i = 0; i < nBodies; i++) {
                     bodies[i].F = new double[]{zLength * xForce[i], zLength * yForce[i], zLength * momentum[i]};
-                    bodies[i].F = Mat.plusVec(bodies[i].F, bodies[i].timeDependentForces(t));
+                    bodies[i].F = Mat.plusVec(bodies[i].F, bodies[i].timeDependentForces(tRef * t));
                     double[] BU = Mat.times(bodies[i].B, bodies[i].U);
                     double[] KX = Mat.times(bodies[i].K, bodies[i].X); 
                     double[] aux = new double[3];
@@ -269,9 +269,9 @@ public class Rigid2DGACR implements Dynamics {
             }
 
             // kinematic forced body
-            if (t * tRef < tKick) {
+            if (t < tKick / tRef) {
                 for (int i = 0; i < nBodies; i++) {
-                    bodies[i].setActualKinematicCoordinates(tRef * t);
+                    bodies[i].setActualKinematicCoordinates(t);
                     for (int j = 0; j < bodies[i].X.length; j++) {
                         if (bodies[i].freedom[j]) {
                             bodies[i].Unew[j] = (bodies[i].Xnew[j] - bodies[i].X[j])/dt;
@@ -384,11 +384,12 @@ public class Rigid2DGACR implements Dynamics {
         }
 
         void setActualKinematicCoordinates(double t) throws ScriptException {
+            t *= tRef;
             if (xMotion != null) {
-                Xnew[0] = jsEval.eval(xMotion, t);
+                Xnew[0] = jsEval.eval(xMotion, t) / lRef;
             }
             if (yMotion != null) {
-                Xnew[1] = jsEval.eval(yMotion, t);
+                Xnew[1] = jsEval.eval(yMotion, t) / lRef;
             }
             if (alphaMotion != null) {
                 Xnew[2] = jsEval.eval(alphaMotion, t);
@@ -397,7 +398,7 @@ public class Rigid2DGACR implements Dynamics {
 
         public double[] timeDependentForces(double t) throws ScriptException { // time dependent external forces
             double[] Ft = new double[3];
-            if (t * tRef < tKickForce) {
+            if (t < tKickForce) {
                 if (xTimeForce != null) {
                     Ft[0] = jsEval.eval(xTimeForce, t) / FRef;
                 }
