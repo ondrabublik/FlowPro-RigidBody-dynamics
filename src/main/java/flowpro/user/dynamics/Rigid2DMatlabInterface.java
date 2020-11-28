@@ -107,19 +107,19 @@ public class Rigid2DMatlabInterface implements Dynamics {
         }
     }
 
-    public void computeBodyMove(double dt, double t, int s, FluidForces fluFor) {
-        this.dt = dt;
-        this.t = t;
-        double[][] translationForce = fluFor.getTranslationForce();
-        this.xForce = translationForce[0];
-        this.yForce = translationForce[1];
-        double[][] rotationForce = fluFor.getRotationForce();
-        this.momentum = rotationForce[0];
-        try {
-            mc.computeBodyMovement();
-        } catch (Exception e) {
-            System.out.println(e);
-        }
+    public void computeBodyMove(double dt, double t, int s, FluidForces[] fluFor) {
+//        this.dt = dt;
+//        this.t = t;
+//        double[][] translationForce = fluFor.getTranslationForce();
+//        this.xForce = translationForce[0];
+//        this.yForce = translationForce[1];
+//        double[][] rotationForce = fluFor.getRotationForce();
+//        this.momentum = rotationForce[0];
+//        try {
+//            mc.computeBodyMovement();
+//        } catch (Exception e) {
+//            System.out.println(e);
+//        }
     }
 
     public void nextTimeLevel() {

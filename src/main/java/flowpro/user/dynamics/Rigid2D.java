@@ -20,9 +20,10 @@ public class Rigid2D implements Dynamics {
     private int nBodies;
     private Body[] bodies;
     private String simulationPath;
-    private double[] xForce;
-    private double[] yForce;
-    private double[] momentum;
+//    private double[] xForce;
+//    private double[] yForce;
+//    private double[] momentum;
+	private FluidForces[] fluFor;
     public double dtOld;
     public double dt;
     public double t;
@@ -210,9 +211,12 @@ public class Rigid2D implements Dynamics {
             }
         }
     }
-
-    public void computeBodyMove(double dt, double t, int innerIter, FluidForces fluFor) {
-        this.t = t;
+	
+	@Override
+	public void computeBodyMove(double dt, double t, int innerIter, FluidForces[] fluFor) {
+		this.fluFor = fluFor;
+		
+		this.t = t;
         this.dt = dt;
         if (t < 1e-12) {
             this.dtOld = dt;
@@ -220,16 +224,11 @@ public class Rigid2D implements Dynamics {
         double a1 = 1 + dt / dtOld / 2;
         double a2 = -dt / dtOld / 2;
 
-        double[][] translationForce = fluFor.getTranslationForce();
-        this.xForce = translationForce[0];
-        this.yForce = translationForce[1];
-        double[][] rotationForce = fluFor.getRotationForce();
-        this.momentum = rotationForce[0];
-
         try {
             if (dynamicComputation) {
                 for (int i = 0; i < nBodies; i++) {
-                    double[] F = new double[]{zLength * xForce[i], zLength * yForce[i], zLength * momentum[i]};                    
+					double[] F = new double[] {zLength * fluFor[i].force[0],
+						zLength * fluFor[i].force[1], zLength * fluFor[i].force[0]};                   
                     
                     if (innerIter == 0) {                        
                         System.arraycopy(F, 0, bodies[i].Fn, 0, bodies[i].Fnew.length);
@@ -270,11 +269,76 @@ public class Rigid2D implements Dynamics {
                     bodies[i].setActualKinematicCoordinates(t);
                 }
             }
-        } catch (Exception ex) {
+        } catch (ScriptException ex) {
             ex.printStackTrace();
 //            System.out.println("formal error in JavaScript script ");
         }
-    }
+	}
+
+//    public void computeBodyMove2(double dt, double t, int innerIter, FluidForces[] fluFor) {
+//        this.t = t;
+//        this.dt = dt;
+//        if (t < 1e-12) {
+//            this.dtOld = dt;
+//        }
+//        double a1 = 1 + dt / dtOld / 2;
+//        double a2 = -dt / dtOld / 2;
+//
+//        double[][] translationForce = fluFor.getTranslationForce();
+//        this.xForce = translationForce[0];
+//        this.yForce = translationForce[1];
+//        double[][] rotationForce = fluFor.getRotationForce();
+//        this.momentum = rotationForce[0];
+//
+//        try {
+//            if (dynamicComputation) {
+//                for (int i = 0; i < nBodies; i++) {
+//                    double[] F = new double[]{zLength * xForce[i], zLength * yForce[i], zLength * momentum[i]};                    
+//                    
+//                    if (innerIter == 0) {                        
+//                        System.arraycopy(F, 0, bodies[i].Fn, 0, bodies[i].Fnew.length);
+//                        bodies[i].Fn = Mat.plusVec(bodies[i].Fn, bodies[i].timeDependentForces(t));
+//                        for (int j = 0; j < bodies[i].Fn.length; j++) {
+//                            bodies[i].Fnew[j] = (1 + dt / dtOld) * bodies[i].Fn[j] - dt / dtOld * bodies[i].Fold[j];
+//                        }
+//                    } else {                        
+//                        System.arraycopy(F, 0, bodies[i].Fnew, 0, bodies[i].Fnew.length);
+//                        bodies[i].Fnew = Mat.plusVec(bodies[i].Fnew, bodies[i].timeDependentForces(t+dt));
+//                    }
+//
+//                    double[] BU = Mat.times(bodies[i].B, bodies[i].U);
+//                    double[] KX = Mat.times(bodies[i].K, bodies[i].X);
+//                    //bodies[i].RHS = Mat.times(bodies[i].iM, Mat.plusMinMinVec(bodies[i].F, BU, KX));
+//                    
+//                    // hruza !!!!!!!!
+//                    double[] aux = new double[3];
+//                    double[] aux2 = new double[3];
+//                    for (int j = 0; j < 3; j++) {
+//                        aux[j] = -(BU[j] + KX[j]);
+//                        aux2[j] = dt * (bodies[i].Fnew[j] + bodies[i].Fn[j]) / 2;
+//                    }
+//                    bodies[i].RHS = Mat.times(bodies[i].iM, aux);
+//                    aux2 = Mat.times(bodies[i].iM, aux2);
+//                    // Two-step Adams–Bashforth
+//                    for (int j = 0; j < bodies[i].X.length; j++) {                        
+//                        bodies[i].Xnew[j] = bodies[i].X[j] + dt * (a1 * bodies[i].U[j] + a2 * bodies[i].Uold[j]);
+//                        bodies[i].Unew[j] = bodies[i].U[j] + dt * (a1 * bodies[i].RHS[j] + a2 * bodies[i].RHSold[j])
+//                                + aux2[j];
+//                    }
+//                }
+//            }
+//
+//            // kinematic forced body
+//            if (t < tKick) {
+//                for (int i = 0; i < nBodies; i++) {
+//                    bodies[i].setActualKinematicCoordinates(t);
+//                }
+//            }
+//        } catch (Exception ex) {
+//            ex.printStackTrace();
+////            System.out.println("formal error in JavaScript script ");
+//        }
+//    }
 
     public void nextTimeLevel() {
         if (dynamicComputation) {
@@ -309,14 +373,19 @@ public class Rigid2D implements Dynamics {
         return center;
     }
 
+	@Override
     public void savePositionsAndForces() {
         try (FileWriter fw = new FileWriter(simulationPath + "bodiesDynamic.txt", true);
                 BufferedWriter bw = new BufferedWriter(fw);
                 PrintWriter out = new PrintWriter(bw)) {
-            String line = Double.toString(t);
+            String line = Double.toString(t) + " ";
             for (int i = 0; i < nBodies; i++) {
-                line = line + " " + Double.toString(bodies[i].Xnew[0]) + " " + Double.toString(bodies[i].Xnew[1]) + " " + Double.toString(bodies[i].Xnew[2]) + " "
-                        + Double.toString(zLength * xForce[i]) + " " + Double.toString(zLength * yForce[i]) + " " + Double.toString(zLength * momentum[i]);
+                line +=   Double.toString(bodies[i].Xnew[0]) + " "
+						+ Double.toString(bodies[i].Xnew[1]) + " "
+						+ Double.toString(bodies[i].Xnew[2]) + " "
+                        + Double.toString(zLength * fluFor[i].force[0]) + " "
+						+ Double.toString(zLength * fluFor[i].force[1]) + " "
+						+ Double.toString(zLength * fluFor[i].torque[0]);
             }
             out.println(line);
         } catch (IOException e) {
