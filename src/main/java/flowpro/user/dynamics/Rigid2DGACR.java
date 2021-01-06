@@ -23,6 +23,8 @@ public class Rigid2DGACR implements Dynamics {
     private double[] xForce;
     private double[] yForce;
     private double[] momentum;
+    private double[] aeroForceXCenter;
+    private double[] aeroForceYCenter;
     public double dt;
     public double t;
     public double zLength;
@@ -237,10 +239,13 @@ public class Rigid2DGACR implements Dynamics {
         this.dt = dt;
         this.t = t;
         double[][] translationForce = fluFor.getTranslationForce();
+        double[][] aeroForcesCentre = fluFor.getUserDef();
         this.xForce = translationForce[0];
         this.yForce = translationForce[1];
         double[][] rotationForce = fluFor.getRotationForce();
         this.momentum = rotationForce[0];
+        this.aeroForceXCenter = aeroForcesCentre[0];
+        this.aeroForceYCenter = aeroForcesCentre[1];
 
         try {
             if (dynamicComputation) {
@@ -322,7 +327,8 @@ public class Rigid2DGACR implements Dynamics {
             String line = Double.toString(t);
             for (int i = 0; i < nBodies; i++) {
                 line = line + " " + Double.toString(bodies[i].Xnew[0]) + " " + Double.toString(bodies[i].Xnew[1]) + " " + Double.toString(bodies[i].Xnew[2]) + " "
-                        + Double.toString(zLength*xForce[i]) + " " + Double.toString(zLength*yForce[i]) + " " + Double.toString(zLength*momentum[i]);
+                        + Double.toString(zLength*xForce[i]) + " " + Double.toString(zLength*yForce[i]) + " " + Double.toString(zLength*momentum[i])
+                         + " " + Double.toString(aeroForceXCenter[i])  + " " + Double.toString(aeroForceYCenter[i]);
             }
             out.println(line);
         } catch (IOException e) {

@@ -28,7 +28,6 @@ public class Rigid3D implements Dynamics {
     private double[] gammaMomentum;
     public double dt;
     public double t;
-    public double zLength;
     public double tKick;
 
     // dynamic
@@ -85,16 +84,20 @@ public class Rigid3D implements Dynamics {
             System.out.println("Body centers not defined!");
         }
 
-        zLength = 1;
-        if (props.containsKey("zLength")) {
-            zLength = props.getDouble("zLength");
-        } else {
-            System.out.println("Length of 2D bodies in z coordinate is set to " + zLength);
-        }
 
         tKick = Double.MAX_VALUE;
         if (props.containsKey("tKick")) {
             tKick = props.getDouble("tKick");
+        }
+
+        try {
+            double[] refValues = eqn.getReferenceValues();
+            lRef = refValues[0];
+            pRef = refValues[1];
+            rhoRef = refValues[2];
+            tRef = refValues[4];
+        } catch (Exception e) {
+            System.out.println("Cannot assign referential values to body dynamics!");
         }
 
         try {
@@ -113,15 +116,6 @@ public class Rigid3D implements Dynamics {
                 }
             }
 
-            try {
-                double[] refValues = eqn.getReferenceValues();
-                lRef = refValues[0];
-                pRef = refValues[1];
-                rhoRef = refValues[2];
-                tRef = refValues[4];
-            } catch (Exception e) {
-                System.out.println("Cannot assign referential values to body dynamics!");
-            }
             mRef = rhoRef * lRef * lRef;
             kRef = pRef;
             bRef = pRef * tRef;
@@ -146,6 +140,55 @@ public class Rigid3D implements Dynamics {
 
         } catch (Exception e) {
             System.out.println("Mass, stifness and damping matrixes are not defined!");
+        }
+
+        boolean[] xFreedom = null;
+        boolean[] yFreedom = null;
+        boolean[] zFreedom = null;
+        boolean[] alphaFreedom = null;
+        boolean[] bethaFreedom = null;
+        boolean[] gammaFreedom = null;
+        try {
+            if (props.containsKey("xFreedom")) {
+                xFreedom = props.getBooleanArray("xFreedom");
+            }
+            if (props.containsKey("yFreedom")) {
+                yFreedom = props.getBooleanArray("yFreedom");
+            }
+            if (props.containsKey("zFreedom")) {
+                zFreedom = props.getBooleanArray("zFreedom");
+            }
+            if (props.containsKey("alphaFreedom")) {
+                alphaFreedom = props.getBooleanArray("alphaFreedom");
+            }
+            if (props.containsKey("bethaFreedom")) {
+                bethaFreedom = props.getBooleanArray("bethaFreedom");
+            }
+            if (props.containsKey("gammaFreedom")) {
+                gammaFreedom = props.getBooleanArray("gammaFreedom");
+            }
+        } catch (Exception e) {
+            System.out.println("Error in degrees of freedom " + e);
+        }
+        for (int i = 0; i < nBodies; i++) {
+            if (xFreedom != null) {
+                bodies[i].setXFreedom(xFreedom[i]);
+            }
+            if (yFreedom != null) {
+                bodies[i].setYFreedom(yFreedom[i]);
+            }
+            if (zFreedom != null) {
+                bodies[i].setZFreedom(zFreedom[i]);
+            }
+            if (alphaFreedom != null) {
+                bodies[i].setAlphaFreedom(alphaFreedom[i]);
+            }
+            if (bethaFreedom != null) {
+                bodies[i].setBethaFreedom(bethaFreedom[i]);
+            }
+            if (gammaFreedom != null) {
+                bodies[i].setGammaFreedom(gammaFreedom[i]);
+            }
         }
 
         // load scripts
@@ -213,28 +256,35 @@ public class Rigid3D implements Dynamics {
 
         if (dynamicComputation) {
             for (int i = 0; i < nBodies; i++) {
-                bodies[i].F = new double[]{zLength * xForce[i], zLength * yForce[i], zLength * zForce[i],
-                    zLength * alphaMomentum[i], zLength * betaMomentum[i], zLength * gammaMomentum[i]};
+                bodies[i].F = new double[]{xForce[i], yForce[i], zForce[i],
+                    alphaMomentum[i], betaMomentum[i], gammaMomentum[i]};
                 bodies[i].F = Mat.plusVec(bodies[i].F, bodies[i].timeDependentForces(i, t));
                 double[] BU = Mat.times(bodies[i].B, bodies[i].U);
                 double[] KX = Mat.times(bodies[i].K, bodies[i].X);
                 bodies[i].RHS = Mat.times(bodies[i].iM, Mat.plusMinMinVec(bodies[i].F, BU, KX));
                 // Two-step Adams–Bashforth
                 for (int j = 0; j < bodies[i].X.length; j++) {
-                    bodies[i].Xnew[j] = bodies[i].X[j] + dt * (1.5 * bodies[i].U[j] - 0.5 * bodies[i].Uold[j]);
-                    bodies[i].Unew[j] = bodies[i].U[j] + dt * (1.5 * bodies[i].RHS[j] - 0.5 * bodies[i].RHSold[j]) + dt * (bodies[i].F[j] + bodies[i].Fold[j]) / 2;
+                    if (bodies[i].freedom[j]) {
+                        bodies[i].Xnew[j] = bodies[i].X[j] + dt * (1.5 * bodies[i].U[j] - 0.5 * bodies[i].Uold[j]);
+                        bodies[i].Unew[j] = bodies[i].U[j] + dt * (1.5 * bodies[i].RHS[j] - 0.5 * bodies[i].RHSold[j]) + dt * (bodies[i].F[j] + bodies[i].Fold[j]) / 2;
+                    }
                 }
             }
         }
 
         // kinematic forced body
-        if (t < tKick) {
-            try {
-                for (int i = 0; i < nBodies; i++) {
-                    bodies[i].setActualKinematicCoordinates(i, t);
+        if (t < tKick / tRef) {
+            for (int i = 0; i < nBodies; i++) {
+                try {
+                    bodies[i].setActualKinematicCoordinates(t);
+                } catch (ScriptException ex) {
+                    System.out.println("formal error in JavaScript script ");
                 }
-            } catch (Exception e) {
-                System.out.println("error in script for kinematic movement ");
+                for (int j = 0; j < bodies[i].X.length; j++) {
+                    if (bodies[i].freedom[j]) {
+                        bodies[i].Unew[j] = (bodies[i].Xnew[j] - bodies[i].X[j]) / dt;
+                    }
+                }
             }
         }
     }
@@ -256,7 +306,7 @@ public class Rigid3D implements Dynamics {
     public MeshMove[] getMeshMove() {
         MeshMove[] mshMov = new MeshMove[nBodies];
         for (int k = 0; k < nBodies; k++) {
-            mshMov[k] = new MeshMove(new double[]{bodies[k].Xnew[0], bodies[k].Xnew[1], bodies[k].Xnew[2]}, new double[]{bodies[k].Xnew[3],bodies[k].Xnew[4],bodies[k].Xnew[5]}, null, null);
+            mshMov[k] = new MeshMove(new double[]{bodies[k].Xnew[0], bodies[k].Xnew[1], bodies[k].Xnew[2]}, new double[]{bodies[k].Xnew[3], bodies[k].Xnew[4], bodies[k].Xnew[5]}, null, null);
         }
         return mshMov;
     }
@@ -278,7 +328,7 @@ public class Rigid3D implements Dynamics {
             String line = Double.toString(t);
             for (int i = 0; i < nBodies; i++) {
                 line = line + " " + Double.toString(bodies[i].Xnew[0]) + " " + Double.toString(bodies[i].Xnew[1]) + " " + Double.toString(bodies[i].Xnew[2]) + " "
-                        + Double.toString(xForce[i]) + " " + Double.toString(yForce[i]) + " " +  Double.toString(zForce[i]);
+                        + Double.toString(xForce[i]) + " " + Double.toString(yForce[i]) + " " + Double.toString(zForce[i]);
             }
             out.println(line);
         } catch (IOException e) {
@@ -310,6 +360,7 @@ public class Rigid3D implements Dynamics {
         public double[] RHSold;
         public double[] F;
         public double[] Fold;
+        boolean[] freedom;
 
         Body(int i, ScriptEvaluator jsEval) {
             X = new double[6];
@@ -322,6 +373,7 @@ public class Rigid3D implements Dynamics {
             RHS = new double[6];
             RHSold = new double[6];
             Fold = new double[6];
+            freedom = new boolean[6];
 
             this.jsEval = jsEval;
         }
@@ -333,15 +385,16 @@ public class Rigid3D implements Dynamics {
             iM = Mat.invert(M);
         }
 
-        void setActualKinematicCoordinates(int i, double t) throws ScriptException {
+        void setActualKinematicCoordinates(double t) throws ScriptException {
+            t *= tRef;
             if (xMotion != null) {
-                Xnew[0] = jsEval.eval(xMotion, t);
+                Xnew[0] = jsEval.eval(xMotion, t) / lRef;
             }
             if (yMotion != null) {
-                Xnew[1] = jsEval.eval(yMotion, t);
+                Xnew[1] = jsEval.eval(yMotion, t) / lRef;
             }
             if (zMotion != null) {
-                Xnew[2] = jsEval.eval(zMotion, t);
+                Xnew[2] = jsEval.eval(zMotion, t) / lRef;
             }
             if (alphaMotion != null) {
                 Xnew[3] = jsEval.eval(alphaMotion, t);
@@ -358,6 +411,30 @@ public class Rigid3D implements Dynamics {
             return new double[6];
         }
 
+        public void setXFreedom(boolean free) {
+            freedom[0] = free;
+        }
+
+        public void setYFreedom(boolean free) {
+            freedom[1] = free;
+        }
+
+        public void setZFreedom(boolean free) {
+            freedom[2] = free;
+        }
+
+        public void setAlphaFreedom(boolean free) {
+            freedom[3] = free;
+        }
+
+        public void setBethaFreedom(boolean free) {
+            freedom[4] = free;
+        }
+
+        public void setGammaFreedom(boolean free) {
+            freedom[5] = free;
+        }
+
         public void setXMotion(String motion) {
             this.xMotion = motion;
         }
@@ -365,7 +442,7 @@ public class Rigid3D implements Dynamics {
         public void setYMotion(String motion) {
             this.yMotion = motion;
         }
-        
+
         public void setZMotion(String motion) {
             this.zMotion = motion;
         }
@@ -373,11 +450,11 @@ public class Rigid3D implements Dynamics {
         public void setAlphaMotion(String alphaMotion) {
             this.alphaMotion = alphaMotion;
         }
-        
+
         public void setBetaMotion(String motion) {
             this.betaMotion = motion;
         }
-        
+
         public void setGammaMotion(String motion) {
             this.gammaMotion = motion;
         }

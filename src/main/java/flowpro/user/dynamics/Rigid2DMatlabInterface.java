@@ -171,7 +171,7 @@ public class Rigid2DMatlabInterface implements Dynamics {
         ObjectInputStream in;
 
         MatlabClient() {
-            try (ServerSocket listener = new ServerSocket(5767)) {
+            try (ServerSocket listener = new ServerSocket(5768)) {
                 socket = listener.accept();
                 socket.setTcpNoDelay(true);
                 socket.setKeepAlive(true);
