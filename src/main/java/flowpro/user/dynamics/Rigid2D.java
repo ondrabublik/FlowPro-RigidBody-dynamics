@@ -133,7 +133,7 @@ public class Rigid2D implements Dynamics {
             dynamicComputation = true;
 
         } catch (Exception e) {
-            System.out.println("Mass, stifness or damping matrix not defined!");
+            System.out.println("WARNING! Mass, stifness or damping matrix not defined!");
         }
 
         // load scripts
@@ -346,7 +346,7 @@ public class Rigid2D implements Dynamics {
 						+ Double.toString(bodies[i].Xnew[2]) + " "
                         + Double.toString(zLength * fluFor[i].force[0]) + " "
 						+ Double.toString(zLength * fluFor[i].force[1]) + " "
-						+ Double.toString(zLength * fluFor[i].torque[0]);
+						+ Double.toString(zLength * fluFor[i].torque[0]) + " ";
             }
             out.println(line);
         } catch (IOException e) {
@@ -389,7 +389,7 @@ public class Rigid2D implements Dynamics {
         Body(int i, ScriptEvaluator jsEval) {
             X = new double[3];
             U = new double[3];
-            XCenter = new double[3];
+            XCenter = new double[2];
 
             Xnew = new double[3];
             Unew = new double[3];
