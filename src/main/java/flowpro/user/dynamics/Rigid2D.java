@@ -275,9 +275,23 @@ public class Rigid2D implements Dynamics {
             }
 
             // kinematic forced body
-            if (t < tKick) {
+            if (t*tRef < tKick) {
+//				double b1 = (2 * dt + dtOld) / (dt * (dt + dtOld));  // 3/(2*dt); 
+//				double b2 = -(dt + dtOld) / (dt * dtOld);  // -2/dt;
+//				double b3 = dt / (dtOld * (dt + dtOld));  // 1/(2*dt);
+				
                 for (int i = 0; i < nBodies; i++) {
+					System.arraycopy(bodies[i].Xnew, 0, bodies[i].X, 0, nBodies);
+					
                     bodies[i].setActualKinematicCoordinates(t + dt);
+					
+					for (int j = 0; j < bodies[i].X.length; j++) {
+						if (bodies[i].freedom[j]) {
+							/* Rychlost telesa pri nakopnuti se pocitaji jen s prvnim radem. Rychlost se pouzije jen
+							   v prvni casovem kroku po zapnuti interakce, tak to moc nevadi. */
+							bodies[i].Unew[j] = (bodies[i].Xnew[j] - bodies[i].X[j]) / dt;
+						}
+					}
                 }
             }
         } catch (ScriptException ex) {
