@@ -242,51 +242,44 @@ public class Rigid3D implements Dynamics {
         }
     }
 
-    public void computeBodyMove(double dt, double t, int s, FluidForces fluFor) {
-        this.dt = dt;
-        this.t = t;
-        double[][] translationForce = fluFor.getTranslationForce();
-        this.xForce = translationForce[0];
-        this.yForce = translationForce[1];
-        this.zForce = translationForce[2];
-        double[][] rotationForce = fluFor.getRotationForce();
-        this.alphaMomentum = rotationForce[0];
-        this.betaMomentum = rotationForce[1];
-        this.gammaMomentum = rotationForce[2];
-
-        if (dynamicComputation) {
-            for (int i = 0; i < nBodies; i++) {
-                bodies[i].F = new double[]{xForce[i], yForce[i], zForce[i],
-                    alphaMomentum[i], betaMomentum[i], gammaMomentum[i]};
-                bodies[i].F = Mat.plusVec(bodies[i].F, bodies[i].timeDependentForces(i, t));
-                double[] BU = Mat.times(bodies[i].B, bodies[i].U);
-                double[] KX = Mat.times(bodies[i].K, bodies[i].X);
-                bodies[i].RHS = Mat.times(bodies[i].iM, Mat.plusMinMinVec(bodies[i].F, BU, KX));
-                // Two-step Adams–Bashforth
-                for (int j = 0; j < bodies[i].X.length; j++) {
-                    if (bodies[i].freedom[j]) {
-                        bodies[i].Xnew[j] = bodies[i].X[j] + dt * (1.5 * bodies[i].U[j] - 0.5 * bodies[i].Uold[j]);
-                        bodies[i].Unew[j] = bodies[i].U[j] + dt * (1.5 * bodies[i].RHS[j] - 0.5 * bodies[i].RHSold[j]) + dt * (bodies[i].F[j] + bodies[i].Fold[j]) / 2;
-                    }
-                }
-            }
-        }
-
-        // kinematic forced body
-        if (t < tKick / tRef) {
-            for (int i = 0; i < nBodies; i++) {
-                try {
-                    bodies[i].setActualKinematicCoordinates(t);
-                } catch (ScriptException ex) {
-                    System.out.println("formal error in JavaScript script ");
-                }
-                for (int j = 0; j < bodies[i].X.length; j++) {
-                    if (bodies[i].freedom[j]) {
-                        bodies[i].Unew[j] = (bodies[i].Xnew[j] - bodies[i].X[j]) / dt;
-                    }
-                }
-            }
-        }
+    public void computeBodyMove(double dt, double t, int s, FluidForces[] fluFor) {
+//        this.dt = dt;
+//        this.t = t;
+//        double[][] translationForce = fluFor.getTranslationForce();
+//        this.xForce = translationForce[0];
+//        this.yForce = translationForce[1];
+//        this.zForce = translationForce[2];
+//        double[][] rotationForce = fluFor.getRotationForce();
+//        this.alphaMomentum = rotationForce[0];
+//        this.betaMomentum = rotationForce[1];
+//        this.gammaMomentum = rotationForce[2];
+//
+//        if (dynamicComputation) {
+//            for (int i = 0; i < nBodies; i++) {
+//                bodies[i].F = new double[]{zLength * xForce[i], zLength * yForce[i], zLength * zForce[i],
+//                    zLength * alphaMomentum[i], zLength * betaMomentum[i], zLength * gammaMomentum[i]};
+//                bodies[i].F = Mat.plusVec(bodies[i].F, bodies[i].timeDependentForces(i, t));
+//                double[] BU = Mat.times(bodies[i].B, bodies[i].U);
+//                double[] KX = Mat.times(bodies[i].K, bodies[i].X);
+//                bodies[i].RHS = Mat.times(bodies[i].iM, Mat.plusMinMinVec(bodies[i].F, BU, KX));
+//                // Two-step Adams–Bashforth
+//                for (int j = 0; j < bodies[i].X.length; j++) {
+//                    bodies[i].Xnew[j] = bodies[i].X[j] + dt * (1.5 * bodies[i].U[j] - 0.5 * bodies[i].Uold[j]);
+//                    bodies[i].Unew[j] = bodies[i].U[j] + dt * (1.5 * bodies[i].RHS[j] - 0.5 * bodies[i].RHSold[j]) + dt * (bodies[i].F[j] + bodies[i].Fold[j]) / 2;
+//                }
+//            }
+//        }
+//
+//        // kinematic forced body
+//        if (t < tKick) {
+//            try {
+//                for (int i = 0; i < nBodies; i++) {
+//                    bodies[i].setActualKinematicCoordinates(i, t);
+//                }
+//            } catch (Exception e) {
+//                System.out.println("error in script for kinematic movement ");
+//            }
+//        }
     }
 
     public void nextTimeLevel() {

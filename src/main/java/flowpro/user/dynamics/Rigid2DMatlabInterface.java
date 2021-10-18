@@ -25,7 +25,7 @@ public class Rigid2DMatlabInterface implements Dynamics {
     private String simulationPath;
     private double[] xForce;
     private double[] yForce;
-    private double[] momentum;
+    private double[] torque;
     public double dt;
     public double t;
     double[] Xnew;
@@ -54,6 +54,10 @@ public class Rigid2DMatlabInterface implements Dynamics {
         Xnew = new double[nBodies];
         Ynew = new double[nBodies];
         alfa = new double[nBodies];
+        
+        xForce = new double[nBodies];
+        yForce = new double[nBodies];
+        torque = new double[nBodies];
 
         // clear file for results
         FlowProProperties props = new FlowProProperties();
@@ -107,14 +111,14 @@ public class Rigid2DMatlabInterface implements Dynamics {
         }
     }
 
-    public void computeBodyMove(double dt, double t, int s, FluidForces fluFor) {
+    public void computeBodyMove(double dt, double t, int s, FluidForces[] fluFor) {
         this.dt = dt;
         this.t = t;
-        double[][] translationForce = fluFor.getTranslationForce();
-        this.xForce = translationForce[0];
-        this.yForce = translationForce[1];
-        double[][] rotationForce = fluFor.getRotationForce();
-        this.momentum = rotationForce[0];
+        for (int i = 0; i < nBodies; i++) {
+            xForce[i] = fluFor[i].force[0];
+            yForce[i] = fluFor[i].force[1];
+            torque[i] = fluFor[i].torque[0];
+        }
         try {
             mc.computeBodyMovement();
         } catch (Exception e) {
@@ -156,7 +160,7 @@ public class Rigid2DMatlabInterface implements Dynamics {
             String line = Double.toString(t);
             for (int i = 0; i < nBodies; i++) {
                 line = line + " " + Double.toString(Xnew[i]) + " " + Double.toString(Ynew[i]) + " " + Double.toString(alfa[i]) + " "
-                        + Double.toString(xForce[i]) + " " + Double.toString(yForce[i]) + " " + Double.toString(momentum[i]);
+                        + Double.toString(xForce[i]) + " " + Double.toString(yForce[i]) + " " + Double.toString(torque[i]);
             }
             out.println(line);
         } catch (IOException e) {
@@ -201,7 +205,7 @@ public class Rigid2DMatlabInterface implements Dynamics {
             out.writeDouble(dt);
             out.writeObject(xForce);
             out.writeObject(yForce);
-            out.writeObject(momentum);
+            out.writeObject(torque);
             out.flush();
 
             if (nBodies > 1) {

@@ -20,9 +20,7 @@ public class Rigid2D implements Dynamics {
     private int nBodies;
     private Body[] bodies;
     private String simulationPath;
-    private double[] xForce;
-    private double[] yForce;
-    private double[] momentum;
+    private FluidForces[] fluFor;
     public double dtOld;
     public double dt;
     public double t;
@@ -42,6 +40,9 @@ public class Rigid2D implements Dynamics {
     protected double torRef;
     protected double bRef;
     protected double torbRef;
+    
+    // metoda integrace
+    protected int method;
 
     public void init(int nBodies, String simulationPath, String meshPath, Equation eqn) throws IOException {
         this.eqn = eqn;
@@ -77,7 +78,7 @@ public class Rigid2D implements Dynamics {
         try {
             double[] rotationCenters = props.getDoubleArray("rotationCenters");
             for (int i = 0; i < nBodies; i++) {
-                bodies[i].XCenter = new double[]{rotationCenters[2*i], rotationCenters[2*i + 1]}; //???? chyba
+                bodies[i].XCenter = new double[]{rotationCenters[2 * i], rotationCenters[2 * i + 1]}; //???? chyba
             }
         } catch (IOException ioe) {
             System.out.println("Body centers not defined!");
@@ -95,6 +96,11 @@ public class Rigid2D implements Dynamics {
             tKick = props.getDouble("tKick");
         }
 
+        method = 1;
+        if (props.containsKey("method")) {
+            method = props.getInt("method");
+        }
+        
         try {
             double[] refValues = eqn.getReferenceValues();
             lRef = refValues[0];
@@ -121,21 +127,6 @@ public class Rigid2D implements Dynamics {
                 }
             }
 
-            /*mRef = rhoRef * lRef * lRef;
-             kRef = pRef;
-             bRef = pRef * tRef;
-             IRef = mRef * lRef * lRef;
-             torRef = pRef * lRef * lRef;
-             torbRef = pRef * lRef * lRef * tRef;
-             //!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! referencni hodnoty deviacnich momentu!!!!!!!!!!!
-             double[][] MRef = new double[][]{{1 / mRef, 0, 0}, {0, 1 / mRef, 0}, {0, 0, 1 / IRef}};
-             double[][] BRef = new double[][]{{1 / bRef, 0, 0}, {0, 1 / bRef, 0}, {0, 0, 1 / torbRef}};
-             double[][] KRef = new double[][]{{1 / kRef, 0, 0}, {0, 1 / kRef, 0}, {0, 0, 1 / torRef}};
-
-             // transfer to unreferential values
-             M = Mat.times(M, MRef);
-             B = Mat.times(B, BRef);
-             K = Mat.times(K, KRef);*/
             double[][] iFRef = new double[][]{{1 / (pRef * lRef), 0, 0}, {0, 1 / (pRef * lRef), 0}, {0, 0, 1 / (pRef * lRef * lRef)}};
             double[][] LRef = new double[][]{{lRef, 0, 0}, {0, lRef, 0}, {0, 0, lRef * lRef}};
             // transfer to unreferential values
@@ -150,10 +141,38 @@ public class Rigid2D implements Dynamics {
             dynamicComputation = true;
 
         } catch (Exception e) {
-            System.out.println("Mass, stifness or damping matrix not defined!");
+            System.out.println("WARNING! Mass, stifness or damping matrix not defined!");
         }
 
         // load scripts
+        boolean[] xFreedom = null;
+        boolean[] yFreedom = null;
+        boolean[] alphaFreedom = null;
+        try {
+            if (props.containsKey("xFreedom")) {
+                xFreedom = props.getBooleanArray("xFreedom");
+            }
+            if (props.containsKey("yFreedom")) {
+                yFreedom = props.getBooleanArray("yFreedom");
+            }
+            if (props.containsKey("alphaFreedom")) {
+                alphaFreedom = props.getBooleanArray("alphaFreedom");
+            }
+        } catch (Exception e) {
+            System.out.println("Error in degrees of freedom " + e);
+        }
+        for (int i = 0; i < nBodies; i++) {
+            if (xFreedom != null) {
+                bodies[i].setXFreedom(xFreedom[i]);
+            }
+            if (yFreedom != null) {
+                bodies[i].setYFreedom(yFreedom[i]);
+            }
+            if (alphaFreedom != null) {
+                bodies[i].setAlphaFreedom(alphaFreedom[i]);
+            }
+        }
+
         String[] xMotion = null;
         String[] yMotion = null;
         String[] alphaMotion = null;
@@ -211,7 +230,9 @@ public class Rigid2D implements Dynamics {
         }
     }
 
-    public void computeBodyMove(double dt, double t, int innerIter, FluidForces fluFor) {
+    @Override
+    public void computeBodyMove(double dt, double t, int innerIter, FluidForces[] fluFor) {
+        this.fluFor = fluFor;
         this.t = t;
         this.dt = dt;
         if (t < 1e-12) {
@@ -220,57 +241,100 @@ public class Rigid2D implements Dynamics {
         double a1 = 1 + dt / dtOld / 2;
         double a2 = -dt / dtOld / 2;
 
-        double[][] translationForce = fluFor.getTranslationForce();
-        this.xForce = translationForce[0];
-        this.yForce = translationForce[1];
-        double[][] rotationForce = fluFor.getRotationForce();
-        this.momentum = rotationForce[0];
-
         try {
             if (dynamicComputation) {
                 for (int i = 0; i < nBodies; i++) {
-                    double[] F = new double[]{zLength * xForce[i], zLength * yForce[i], zLength * momentum[i]};                    
-                    
-                    if (innerIter == 0) {                        
+                    double[] F = new double[]{zLength * fluFor[i].force[0],
+                        zLength * fluFor[i].force[1], zLength * fluFor[i].force[0]};
+
+                    if (innerIter == 0) {
                         System.arraycopy(F, 0, bodies[i].Fn, 0, bodies[i].Fnew.length);
                         bodies[i].Fn = Mat.plusVec(bodies[i].Fn, bodies[i].timeDependentForces(t));
                         for (int j = 0; j < bodies[i].Fn.length; j++) {
                             bodies[i].Fnew[j] = (1 + dt / dtOld) * bodies[i].Fn[j] - dt / dtOld * bodies[i].Fold[j];
                         }
-                    } else {                        
+                    } else {
                         System.arraycopy(F, 0, bodies[i].Fnew, 0, bodies[i].Fnew.length);
-                        bodies[i].Fnew = Mat.plusVec(bodies[i].Fnew, bodies[i].timeDependentForces(t+dt));
+                        bodies[i].Fnew = Mat.plusVec(bodies[i].Fnew, bodies[i].timeDependentForces(t + dt));
                     }
 
-                    double[] BU = Mat.times(bodies[i].B, bodies[i].U);
-                    double[] KX = Mat.times(bodies[i].K, bodies[i].X);
-                    //bodies[i].RHS = Mat.times(bodies[i].iM, Mat.plusMinMinVec(bodies[i].F, BU, KX));
-                    
-                    // hruza !!!!!!!!
-                    double[] aux = new double[3];
-                    double[] aux2 = new double[3];
-                    for (int j = 0; j < 3; j++) {
-                        aux[j] = -(BU[j] + KX[j]);
-                        aux2[j] = dt * (bodies[i].Fnew[j] + bodies[i].Fn[j]) / 2;
-                    }
-                    bodies[i].RHS = Mat.times(bodies[i].iM, aux);
-                    aux2 = Mat.times(bodies[i].iM, aux2);
-                    // Two-step Adams–Bashforth
-                    for (int j = 0; j < bodies[i].X.length; j++) {                        
-                        bodies[i].Xnew[j] = bodies[i].X[j] + dt * (a1 * bodies[i].U[j] + a2 * bodies[i].Uold[j]);
-                        bodies[i].Unew[j] = bodies[i].U[j] + dt * (a1 * bodies[i].RHS[j] + a2 * bodies[i].RHSold[j])
-                                + aux2[j];
+                    switch (method) {
+                        case 1: // Two-step Adams–Bashforth
+                            double[] BU = Mat.times(bodies[i].B, bodies[i].U);
+                            double[] KX = Mat.times(bodies[i].K, bodies[i].X);
+
+                            // hruza !!!!!!!!
+                            double[] aux = new double[3];
+                            double[] aux2 = new double[3];
+                            for (int j = 0; j < 3; j++) {
+                                aux[j] = -(BU[j] + KX[j]);
+                                aux2[j] = dt * (bodies[i].Fnew[j] + bodies[i].Fn[j]) / 2;
+                            }
+                            bodies[i].RHS = Mat.times(bodies[i].iM, aux);
+                            aux2 = Mat.times(bodies[i].iM, aux2);
+
+                            // Two-step Adams–Bashforth
+                            for (int j = 0; j < bodies[i].X.length; j++) {
+                                if (bodies[i].freedom[j]) {
+                                    bodies[i].Xnew[j] = bodies[i].X[j] + dt * (a1 * bodies[i].U[j] + a2 * bodies[i].Uold[j]);
+                                    bodies[i].Unew[j] = bodies[i].U[j] + dt * (a1 * bodies[i].RHS[j] + a2 * bodies[i].RHSold[j])
+                                            + aux2[j];
+                                }
+                            }
+                            break;
+                        case 2: //BDF 1
+                            int n = bodies[i].M.length;
+                            double[][] A = new double[2 * n][2 * n];
+                            double[][] B = new double[2 * n][2 * n];
+                            double[] b = new double[2 * n];
+                            double[] ux_old = new double[2 * n];
+                            for (int j = 0; j < n; j++) {
+                                for (int k = 0; k < n; k++) {
+                                    A[j][k] = bodies[i].M[j][k] / dt;
+                                    B[j][k] = bodies[i].B[j][k];
+                                    B[j][k + n] = bodies[i].K[j][k];
+                                }
+                                ux_old[j] = bodies[i].U[j];
+                                ux_old[j + n] = bodies[i].X[j];
+                                b[j] = (bodies[i].Fnew[j] + bodies[i].Fn[j]) / 2;
+                                A[j + n][j + n] = 1 / dt;
+                                B[j + n][j] = -1;
+                            }
+                            double[][] C = Mat.plus(A, B);
+                            double[] RHS = Mat.plusVec(b, Mat.times(A, ux_old));
+                            double[] ux = Mat.lsolve(C, RHS, 2 * n);
+                            for (int j = 0; j < bodies[i].X.length; j++) {
+                                if (bodies[i].freedom[j]) {
+                                    bodies[i].Unew[j] = ux[j];
+                                    bodies[i].Xnew[j] = ux[j + n];
+                                }
+                            }
+                            break;
                     }
                 }
             }
 
             // kinematic forced body
-            if (t < tKick) {
+            if (t * tRef < tKick) {
+//				double b1 = (2 * dt + dtOld) / (dt * (dt + dtOld));  // 3/(2*dt); 
+//				double b2 = -(dt + dtOld) / (dt * dtOld);  // -2/dt;
+//				double b3 = dt / (dtOld * (dt + dtOld));  // 1/(2*dt);
+
                 for (int i = 0; i < nBodies; i++) {
-                    bodies[i].setActualKinematicCoordinates(t);
+                    System.arraycopy(bodies[i].Xnew, 0, bodies[i].X, 0, 3);
+
+                    bodies[i].setActualKinematicCoordinates(t + dt);
+
+                    for (int j = 0; j < bodies[i].X.length; j++) {
+                        if (bodies[i].freedom[j]) {
+                            /* Rychlost telesa pri nakopnuti se pocitaji jen s prvnim radem. Rychlost se pouzije jen
+							   v prvni casovem kroku po zapnuti interakce, tak to moc nevadi. */
+                            bodies[i].Unew[j] = (bodies[i].Xnew[j] - bodies[i].X[j]) / dt;
+                        }
+                    }
                 }
             }
-        } catch (Exception ex) {
+        } catch (ScriptException ex) {
             ex.printStackTrace();
 //            System.out.println("formal error in JavaScript script ");
         }
@@ -309,25 +373,32 @@ public class Rigid2D implements Dynamics {
         return center;
     }
 
+    @Override
     public void savePositionsAndForces() {
         try (FileWriter fw = new FileWriter(simulationPath + "bodiesDynamic.txt", true);
                 BufferedWriter bw = new BufferedWriter(fw);
                 PrintWriter out = new PrintWriter(bw)) {
-            String line = Double.toString(t);
+            String line = Double.toString(t) + " ";
             for (int i = 0; i < nBodies; i++) {
-                line = line + " " + Double.toString(bodies[i].Xnew[0]) + " " + Double.toString(bodies[i].Xnew[1]) + " " + Double.toString(bodies[i].Xnew[2]) + " "
-                        + Double.toString(zLength * xForce[i]) + " " + Double.toString(zLength * yForce[i]) + " " + Double.toString(zLength * momentum[i]);
+                line += Double.toString(bodies[i].Xnew[0]) + " "
+                        + Double.toString(bodies[i].Xnew[1]) + " "
+                        + Double.toString(bodies[i].Xnew[2]) + " "
+                        + Double.toString(zLength * fluFor[i].force[0]) + " "
+                        + Double.toString(zLength * fluFor[i].force[1]) + " "
+                        + Double.toString(zLength * fluFor[i].torque[0]) + " ";
             }
             out.println(line);
         } catch (IOException e) {
             System.out.println("Error while writing into bodiesDynamic.txt file.");
             //exception handling left as an exercise for the reader
+
         }
     }
 
     public class Body {
 
         ScriptEvaluator jsEval;
+        boolean[] freedom;
         String xMotion;
         String yMotion;
         String alphaMotion;
@@ -358,7 +429,7 @@ public class Rigid2D implements Dynamics {
         Body(int i, ScriptEvaluator jsEval) {
             X = new double[3];
             U = new double[3];
-            XCenter = new double[3];
+            XCenter = new double[2];
 
             Xnew = new double[3];
             Unew = new double[3];
@@ -368,6 +439,7 @@ public class Rigid2D implements Dynamics {
             Fnew = new double[3];
             Fn = new double[3];
             Fold = new double[3];
+            freedom = new boolean[3];
 
             this.jsEval = jsEval;
         }
@@ -405,6 +477,18 @@ public class Rigid2D implements Dynamics {
                 Ft[2] = jsEval.eval(alphaTimeForce, t);
             }
             return Ft;
+        }
+
+        public void setXFreedom(boolean xFreedom) {
+            freedom[0] = xFreedom;
+        }
+
+        public void setYFreedom(boolean yFreedom) {
+            freedom[1] = yFreedom;
+        }
+
+        public void setAlphaFreedom(boolean alphaFreedom) {
+            freedom[2] = alphaFreedom;
         }
 
         public void setXMotion(String xMotion) {
