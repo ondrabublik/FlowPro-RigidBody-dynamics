@@ -258,6 +258,15 @@ public class Rigid2D implements Dynamics {
                         bodies[i].Fnew = Mat.plusVec(bodies[i].Fnew, bodies[i].timeDependentForces(t + dt));
                     }
 
+                    int n = bodies[i].M.length;
+                    double[][] A;
+                    double[][] B;
+                    double[] b;
+                    double[] ux_old;
+                    double[] ux_old2;
+                    double[][] C;
+                    double[] RHS;
+                    double[] ux;
                     switch (method) {
                         case 1: // Two-step Adams–Bashforth
                             double[] BU = Mat.times(bodies[i].B, bodies[i].U);
@@ -283,11 +292,11 @@ public class Rigid2D implements Dynamics {
                             }
                             break;
                         case 2: //BDF 1
-                            int n = bodies[i].M.length;
-                            double[][] A = new double[2 * n][2 * n];
-                            double[][] B = new double[2 * n][2 * n];
-                            double[] b = new double[2 * n];
-                            double[] ux_old = new double[2 * n];
+                            n = bodies[i].M.length;
+                            A = new double[2 * n][2 * n];
+                            B = new double[2 * n][2 * n];
+                            b = new double[2 * n];
+                            ux_old = new double[2 * n];
                             for (int j = 0; j < n; j++) {
                                 for (int k = 0; k < n; k++) {
                                     A[j][k] = bodies[i].M[j][k] / dt;
@@ -300,9 +309,41 @@ public class Rigid2D implements Dynamics {
                                 A[j + n][j + n] = 1 / dt;
                                 B[j + n][j] = -1;
                             }
-                            double[][] C = Mat.plus(A, B);
-                            double[] RHS = Mat.plusVec(b, Mat.times(A, ux_old));
-                            double[] ux = Mat.lsolve(C, RHS, 2 * n);
+                            C = Mat.plus(A, B);
+                            RHS = Mat.plusVec(b, Mat.times(A, ux_old));
+                            ux = Mat.lsolve(C, RHS, 2 * n);
+                            for (int j = 0; j < bodies[i].X.length; j++) {
+                                if (bodies[i].freedom[j]) {
+                                    bodies[i].Unew[j] = ux[j];
+                                    bodies[i].Xnew[j] = ux[j + n];
+                                }
+                            }
+                            break;
+                            
+                        case 3: //BDF 2
+                            n = bodies[i].M.length;
+                            A = new double[2 * n][2 * n];
+                            B = new double[2 * n][2 * n];
+                            b = new double[2 * n];
+                            ux_old = new double[2 * n];
+                            ux_old2 = new double[2 * n];
+                            for (int j = 0; j < n; j++) {
+                                for (int k = 0; k < n; k++) {
+                                    A[j][k] = bodies[i].M[j][k]/dt;
+                                    B[j][k] = bodies[i].B[j][k];
+                                    B[j][k + n] = bodies[i].K[j][k];
+                                }
+                                ux_old[j] = bodies[i].U[j];
+                                ux_old[j + n] = bodies[i].X[j];
+                                ux_old2[j] = bodies[i].Uold[j];
+                                ux_old2[j + n] = bodies[i].Xold[j];
+                                b[j] = (bodies[i].Fnew[j] + bodies[i].Fn[j]);
+                                A[j + n][j + n] = 1/dt;
+                                B[j + n][j] = -1;
+                            }
+                            C = Mat.plus(Mat.times(A,3), Mat.times(B,2));
+                            RHS = Mat.plusVec(b, Mat.times(A, Mat.minusVec(Mat.times(ux_old,4), ux_old2)));
+                            ux = Mat.lsolve(C, RHS, 2 * n);
                             for (int j = 0; j < bodies[i].X.length; j++) {
                                 if (bodies[i].freedom[j]) {
                                     bodies[i].Unew[j] = ux[j];
@@ -346,9 +387,9 @@ public class Rigid2D implements Dynamics {
             for (int i = 0; i < nBodies; i++) {
                 for (int j = 0; j < bodies[i].X.length; j++) {
                     bodies[i].Uold[j] = bodies[i].U[j];
+                    bodies[i].Xold[j] = bodies[i].X[j];
                     bodies[i].RHSold[j] = bodies[i].RHS[j];
                     bodies[i].Fold[j] = bodies[i].Fn[j];
-//                    bodies[i].Fn[j] = bodies[i].F[j];
                     bodies[i].X[j] = bodies[i].Xnew[j];
                     bodies[i].U[j] = bodies[i].Unew[j];
                 }
@@ -418,6 +459,7 @@ public class Rigid2D implements Dynamics {
 
         // old values
         public double[] Xnew;
+        public double[] Xold;
         public double[] Unew;
         public double[] Uold;
         public double[] RHS;
@@ -432,6 +474,7 @@ public class Rigid2D implements Dynamics {
             XCenter = new double[2];
 
             Xnew = new double[3];
+            Xold = new double[3];
             Unew = new double[3];
             Uold = new double[3];
             RHS = new double[3];
